@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UniBite — Είσοδος</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">🍽️ UniBite</div>
+    <p class="auth-subtitle">Φοιτητικό Food Sharing</p>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="showTab('login')">Είσοδος</button>
+      <button class="auth-tab"        onclick="showTab('register')">Εγγραφή</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="login-form">
+      <div class="form-group">
+        <label for="login-email">Email</label>
+        <input class="form-control" id="login-email" type="email" placeholder="user@uni.gr" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="login-password">Κωδικός</label>
+        <input class="form-control" id="login-password" type="password" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="doLogin()">Σύνδεση</button>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="register-form" style="display:none">
+      <div class="form-group">
+        <label for="reg-name">Ονοματεπώνυμο</label>
+        <input class="form-control" id="reg-name" type="text" placeholder="Μαρία Παπαδοπούλου">
+      </div>
+      <div class="form-group">
+        <label for="reg-email">Email</label>
+        <input class="form-control" id="reg-email" type="email" placeholder="user@uni.gr">
+      </div>
+      <div class="form-group">
+        <label for="reg-password">Κωδικός</label>
+        <input class="form-control" id="reg-password" type="password" placeholder="Τουλάχιστον 6 χαρακτήρες">
+      </div>
+      <div class="form-group">
+        <label>Ρόλος</label>
+        <div style="display:flex;gap:.75rem;margin-top:.25rem">
+          <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer">
+            <input type="radio" name="role" value="consumer" checked> Καταναλωτής
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer">
+            <input type="radio" name="role" value="cook"> Μάγειρας
+          </label>
+        </div>
+        <small style="color:var(--text-muted)">Μπορείς να έχεις μόνο έναν ρόλο.</small>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="doRegister()">Εγγραφή (+5 πόντοι!)</button>
+    </div>
+
+    <p style="text-align:center;font-size:.8rem;color:var(--text-muted);margin-top:1.25rem">
+      Δημιουργώντας λογαριασμό αποδέχεσαι τους όρους χρήσης της πλατφόρμας.
+    </p>
+  </div>
+</div>
+<div id="toast-container"></div>
+<script src="/js/app.js"></script>
+<script>
+  // Αν ήδη συνδεδεμένος, redirect
+  API.get('/api/auth/me').then(u => redirectByRole(u.role)).catch(() => {});
+
+  function showTab(tab) {
+    document.querySelectorAll('.auth-tab').forEach((b,i) => b.classList.toggle('active', i === (tab==='login'?0:1)));
+    document.getElementById('login-form').style.display    = tab === 'login'    ? 'block' : 'none';
+    document.getElementById('register-form').style.display = tab === 'register' ? 'block' : 'none';
+  }
+
+  async function doLogin() {
+    const email    = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) return toast('Συμπλήρωσε email και κωδικό', 'warning');
+    try {
+      const user = await API.post('/api/auth/login', { email, password });
+      redirectByRole(user.role);
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  async function doRegister() {
+    const name     = document.getElementById('reg-name').value.trim();
+    const email    = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const role     = document.querySelector('input[name="role"]:checked').value;
+    if (!name || !email || !password) return toast('Συμπλήρωσε όλα τα πεδία', 'warning');
+    if (password.length < 6) return toast('Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες', 'warning');
+    try {
+      const user = await API.post('/api/auth/register', { name, email, password, role });
+      redirectByRole(user.role);
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  // Enter key support
+  ['login-email','login-password'].forEach(id =>
+    document.getElementById(id).addEventListener('keydown', e => e.key === 'Enter' && doLogin()));
+</script>
+</body>
+</html>

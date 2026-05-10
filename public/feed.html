@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UniBite — Feed</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar">
+  <a href="/feed.html" class="navbar-brand" style="text-decoration:none">🍽️ Uni<span>Bite</span></a>
+  <div class="navbar-spacer"></div>
+  <div class="navbar-info">
+    <div class="credits-badge">🌟 <span id="user-credits">—</span></div>
+    <span id="user-name" style="font-weight:500"></span>
+    <a href="/requests.html" class="btn btn-outline btn-sm">📨 Τα αιτήματά μου</a>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Έξοδος</button>
+  </div>
+</nav>
+
+<div class="page-container">
+  <!-- Φίλτρα -->
+  <div class="card" style="margin-bottom:1.25rem">
+    <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:1;min-width:160px">
+        <label>Αναζήτηση</label>
+        <input class="form-control" id="search-input" placeholder="π.χ. μουσακάς..." oninput="renderListings()">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Ταξινόμηση</label>
+        <select class="form-control" id="sort-select" onchange="renderListings()">
+          <option value="new">Νεότερα πρώτα</option>
+          <option value="portions">Περισσότερες μερίδες</option>
+          <option value="distance">Κοντύτερα</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Εμφάνιση</label>
+        <select class="form-control" id="filter-select" onchange="renderListings()">
+          <option value="all">Όλα</option>
+          <option value="available">Μόνο διαθέσιμα</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;min-width:120px">
+        <label>Μέγιστα αποτελέσματα</label>
+        <select class="form-control" id="limit-select" onchange="renderListings()">
+          <option value="0">Όλα</option>
+          <option value="5">5</option>
+          <option value="10">10</option>
+          <option value="20">20</option>
+        </select>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="locateMe()">📍 Η τοποθεσία μου</button>
+    </div>
+  </div>
+
+  <!-- Feed layout: λίστα + χάρτης -->
+  <div class="feed-layout">
+    <!-- Λίστα -->
+    <div>
+      <div id="listings-list">
+        <div class="spinner"></div>
+      </div>
+    </div>
+    <!-- Χάρτης -->
+    <div>
+      <div id="map"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: λεπτομέρειες αγγελίας -->
+<div id="detail-modal" class="modal-backdrop" style="display:none" onclick="closeModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modal-title">—</h2>
+      <button class="modal-close" onclick="document.getElementById('detail-modal').style.display='none'">✕</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Modal: αξιολόγηση -->
+<div id="rating-modal" class="modal-backdrop" style="display:none" onclick="closeModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Αξιολόγηση γεύματος</h2>
+      <button class="modal-close" onclick="document.getElementById('rating-modal').style.display='none'">✕</button>
+    </div>
+    <p style="color:var(--text-muted);margin-bottom:1rem">Πώς ήταν το φαγητό;</p>
+    <div id="star-picker" style="font-size:2rem;display:flex;gap:.5rem;margin-bottom:1.25rem"></div>
+    <button class="btn btn-primary btn-full" onclick="submitRating()">Υποβολή αξιολόγησης</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/app.js"></script>
+<script>
+  let allListings = [];
+  let myLat = null, myLng = null;
+  let map, markers = [];
+  let ratingRequestId = null;
+
+  // ─── Init ───────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', async () => {
+    const user = await checkAuth('consumer');
+    if (!user) return;
+    initMap();
+    await loadListings();
+    await loadMyRequests(); // για να δούμε αν υπάρχουν εκκρεμείς αξιολογήσεις
+  });
+
+  function initMap() {
+    // Κέντρο: Θεσσαλονίκη
+    map = L.map('map').setView([40.6401, 22.9444], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+  }
+
+  async function loadListings() {
+    try {
+      allListings = await API.get('/api/listings');
+      renderListings();
+      updateMapMarkers();
+    } catch (e) {
+      document.getElementById('listings-list').innerHTML = `<p style="color:var(--danger)">${e.message}</p>`;
+    }
+  }
+
+  async function loadMyRequests() {
+    try {
+      const reqs = await API.get('/api/my/requests');
+      // Εκκρεμείς αξιολογήσεις (picked_up, χωρίς rating)
+      const pending = reqs.filter(r => r.status === 'picked_up' && !r.my_rating);
+      if (pending.length) {
+        toast(`Έχεις ${pending.length} αξιολόγηση(εις) που εκκρεμεί!`, 'warning');
+      }
+    } catch {}
+  }
+
+  // ─── Render λίστας ──────────────────────────────────────
+  function renderListings() {
+    const search = document.getElementById('search-input').value.toLowerCase();
+    const sort   = document.getElementById('sort-select').value;
+    const filter = document.getElementById('filter-select').value;
+    const limit  = +document.getElementById('limit-select').value;
+
+    let list = [...allListings];
+
+    if (search) list = list.filter(l => l.title.toLowerCase().includes(search) || (l.notes||'').toLowerCase().includes(search));
+    if (filter === 'available') list = list.filter(l => l.portions_available > 0);
+
+    if (sort === 'portions') list.sort((a,b) => b.portions_available - a.portions_available);
+    else if (sort === 'distance' && myLat !== null) {
+      list.sort((a,b) => {
+        const da = a.lat ? distanceKm(myLat,myLng,+a.lat,+a.lng) : 999;
+        const db2 = b.lat ? distanceKm(myLat,myLng,+b.lat,+b.lng) : 999;
+        return da - db2;
+      });
+    } else {
+      list.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+
+    if (limit > 0) list = list.slice(0, limit);
+
+    const el = document.getElementById('listings-list');
+    if (!list.length) {
+      el.innerHTML = '<div class="empty-state"><div class="emoji">🍽️</div><p>Δεν βρέθηκαν αγγελίες</p></div>';
+      updateMapMarkers([]);
+      return;
+    }
+
+    el.innerHTML = `<div class="grid-cards">${list.map(listingCardHtml).join('')}</div>`;
+    updateMapMarkers(list);
+  }
+
+  function listingCardHtml(l) {
+    const status     = listingStatus(l);
+    const inactive   = status !== 'active';
+    const imgHtml    = l.photo_url
+      ? `<img class="listing-card-img" src="${l.photo_url}" alt="${l.title}" loading="lazy">`
+      : `<div class="listing-card-img-placeholder">🍲</div>`;
+    const allergens  = l.allergen_names
+      ? l.allergen_names.split('||').map(a => `<span class="allergen-tag">⚠ ${a}</span>`).join('')
+      : '';
+    const dist = (myLat && l.lat)
+      ? `<span>📍 ${distanceKm(myLat,myLng,+l.lat,+l.lng).toFixed(1)} km</span>` : '';
+
+    return `
+      <div class="listing-card ${inactive ? 'inactive' : ''}" onclick="showDetail(${l.id})">
+        ${imgHtml}
+        <div class="listing-card-body">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+            <div class="listing-card-title">${l.title}</div>
+            ${statusBadge(l)}
+          </div>
+          <div class="listing-card-meta">
+            <span>👨‍🍳 ${l.cook_name}</span>
+            <span>🏠 ${l.location}</span>
+            <span>⏰ ${l.pickup_time}</span>
+            ${dist}
+          </div>
+          ${allergens ? `<div>${allergens}</div>` : ''}
+        </div>
+        <div class="listing-card-footer">
+          <span style="font-size:.875rem;color:var(--text-muted)">
+            🍽️ <strong>${l.portions_available}</strong>/${l.portions_total} μερίδες
+          </span>
+          ${!inactive ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();requestPortion(${l.id})">Δέσμευση</button>` : '<span style="color:var(--text-light);font-size:.82rem">—</span>'}
+        </div>
+      </div>
+    `;
+  }
+
+  // ─── Map markers ─────────────────────────────────────────
+  function updateMapMarkers(list) {
+    if (list === undefined) list = allListings;
+    markers.forEach(m => m.remove());
+    markers = [];
+    list.filter(l => l.lat && l.lng).forEach(l => {
+      const color = l.portions_available > 0 ? '#E8631A' : '#9E9E9E';
+      const icon  = L.divIcon({
+        className: '',
+        html: `<div style="background:${color};color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,.3)">🍲</div>`,
+        iconSize: [32,32], iconAnchor: [16,16],
+      });
+      const m = L.marker([+l.lat,+l.lng],{icon})
+        .bindPopup(`<strong>${l.title}</strong><br>${l.portions_available} μερίδες<br>${l.location}`)
+        .addTo(map);
+      m.on('click', () => showDetail(l.id));
+      markers.push(m);
+    });
+  }
+
+  // ─── Λεπτομέρειες αγγελίας ───────────────────────────────
+  async function showDetail(id) {
+    document.getElementById('detail-modal').style.display = 'flex';
+    document.getElementById('modal-body').innerHTML = '<div class="spinner"></div>';
+    try {
+      const l       = await API.get(`/api/listings/${id}`);
+      const status  = listingStatus(l);
+      const imgHtml = l.photo_url ? `<img src="${l.photo_url}" style="width:100%;border-radius:8px;margin-bottom:1rem">` : '';
+      const allergens = l.allergen_names
+        ? `<div style="margin-top:.75rem">${l.allergen_names.split('||').map(a=>`<span class="allergen-tag">⚠ ${a}</span>`).join('')}</div>` : '';
+
+      document.getElementById('modal-title').textContent = l.title;
+      document.getElementById('modal-body').innerHTML = `
+        ${imgHtml}
+        <div style="display:flex;flex-direction:column;gap:.6rem;color:var(--text-muted);font-size:.9rem">
+          <div>👨‍🍳 <strong>Μάγειρας:</strong> ${l.cook_name}</div>
+          <div>🏠 <strong>Σημείο παραλαβής:</strong> ${l.location}</div>
+          <div>⏰ <strong>Ώρα παραλαβής:</strong> ${l.pickup_time}</div>
+          <div>🍽️ <strong>Μερίδες:</strong> ${l.portions_available} / ${l.portions_total}</div>
+          ${l.notes ? `<div>📝 ${l.notes}</div>` : ''}
+          ${allergens}
+          <div>🕐 <strong>Λήξη:</strong> ${fmtDate(l.expires_at)}</div>
+        </div>
+        ${status === 'active' ? `<button class="btn btn-primary btn-full" style="margin-top:1.25rem" onclick="requestPortion(${l.id})">🍽️ Δέσμευση μερίδας</button>` : ''}
+      `;
+    } catch (e) {
+      document.getElementById('modal-body').innerHTML = `<p style="color:var(--danger)">${e.message}</p>`;
+    }
+  }
+
+  // ─── Δέσμευση μερίδας ────────────────────────────────────
+  async function requestPortion(listingId) {
+    try {
+      await API.post(`/api/listings/${listingId}/requests`);
+      toast('Το αίτημά σου στάλθηκε! 🎉', 'success');
+      document.getElementById('detail-modal').style.display = 'none';
+      await loadListings(); // refresh
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  // ─── Αξιολόγηση ──────────────────────────────────────────
+  function openRatingModal(requestId) {
+    ratingRequestId = requestId;
+    interactiveStars('star-picker');
+    document.getElementById('rating-modal').style.display = 'flex';
+  }
+
+  async function submitRating() {
+    const stars = +document.getElementById('star-picker').dataset.value;
+    if (!stars) return toast('Επέλεξε βαθμολογία', 'warning');
+    try {
+      await API.post(`/api/requests/${ratingRequestId}/rating`, { stars });
+      toast('Ευχαριστούμε! 🌟', 'success');
+      document.getElementById('rating-modal').style.display = 'none';
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  // ─── Geolocation ─────────────────────────────────────────
+  function locateMe() {
+    if (!navigator.geolocation) return toast('Το browser δεν υποστηρίζει geolocation', 'warning');
+    navigator.geolocation.getCurrentPosition(pos => {
+      myLat = pos.coords.latitude;
+      myLng = pos.coords.longitude;
+      map.setView([myLat, myLng], 14);
+      L.marker([myLat,myLng]).addTo(map).bindPopup('Εσύ').openPopup();
+      toast('Τοποθεσία εντοπίστηκε!', 'success');
+      document.getElementById('sort-select').value = 'distance';
+      renderListings();
+    }, () => toast('Δεν επιτράπηκε η πρόσβαση στην τοποθεσία', 'warning'));
+  }
+
+  function closeModal(e) { if (e.target.classList.contains('modal-backdrop')) e.target.style.display='none'; }
+</script>
+</body>
+</html>

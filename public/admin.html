@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UniBite — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/admin.html" class="navbar-brand" style="text-decoration:none">🍽️ Uni<span>Bite</span> <span style="font-size:.8rem;color:var(--text-muted);font-weight:400">Admin</span></a>
+  <div class="navbar-spacer"></div>
+  <div class="navbar-info">
+    <span id="user-name" style="font-weight:500"></span>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Έξοδος</button>
+  </div>
+</nav>
+
+<div class="page-container">
+  <div class="page-header">
+    <h1>Dashboard Διαχειριστή</h1>
+    <button class="btn btn-outline btn-sm" onclick="loadAll()">🔄 Ανανέωση</button>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats-area"><div class="spinner"></div></div>
+
+  <!-- Top Donor -->
+  <div id="top-donor-area" style="margin-top:2rem"></div>
+
+  <!-- Top Rated Listings -->
+  <div id="top-rated-area" style="margin-top:2rem"></div>
+
+  <!-- Leaderboard -->
+  <div style="margin-top:2rem">
+    <h2 style="margin-bottom:1rem">🏆 Leaderboard Μαγείρων</h2>
+    <div id="leaderboard-area"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/app.js"></script>
+<script>
+  window.addEventListener('DOMContentLoaded', async () => {
+    const user = await checkAuth('admin');
+    if (!user) return;
+    loadAll();
+  });
+
+  async function loadAll() {
+    await Promise.all([loadStats(), loadLeaderboard()]);
+  }
+
+  async function loadStats() {
+    try {
+      const s = await API.get('/api/admin/stats');
+
+      document.getElementById('stats-area').innerHTML = `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${s.total_month}</div>
+            <div class="stat-label">Μερίδες τον τελευταίο μήνα</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${s.total_users}</div>
+            <div class="stat-label">Εγγεγραμμένοι χρήστες</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${s.active_listings}</div>
+            <div class="stat-label">Ενεργές αγγελίες τώρα</div>
+          </div>
+        </div>
+      `;
+
+      // Top Donor
+      if (s.top_donor) {
+        document.getElementById('top-donor-area').innerHTML = `
+          <div class="card" style="border-left:4px solid var(--primary)">
+            <h2 style="margin-bottom:.75rem">👑 Top Donor</h2>
+            <div style="display:flex;align-items:center;gap:1rem">
+              <div style="font-size:3rem">🏆</div>
+              <div>
+                <div style="font-size:1.2rem;font-weight:700">${s.top_donor.name}</div>
+                <div style="color:var(--text-muted)">${s.top_donor.email}</div>
+                <div style="color:var(--primary);font-weight:600;margin-top:.25rem">${s.top_donor.portions_given} μερίδες προσφερθείσες</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      // Top Rated
+      if (s.top_rated && s.top_rated.length) {
+        document.getElementById('top-rated-area').innerHTML = `
+          <h2 style="margin-bottom:1rem">⭐ Κορυφαία Αξιολογημένα Γεύματα</h2>
+          <div class="table-wrapper">
+            <table>
+              <thead><tr><th>Γεύμα</th><th>Μάγειρας</th><th>Μ.Ο. Βαθμολογία</th><th>Αξιολογήσεις</th></tr></thead>
+              <tbody>
+                ${s.top_rated.map(l => `
+                  <tr>
+                    <td>${l.title}</td>
+                    <td>${l.cook_name}</td>
+                    <td>${starsHtml(Math.round(l.avg_rating))} <span style="color:var(--text-muted)">${l.avg_rating}</span></td>
+                    <td>${l.rating_count}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  async function loadLeaderboard() {
+    try {
+      const rows = await API.get('/api/admin/leaderboard');
+      const el   = document.getElementById('leaderboard-area');
+      if (!rows.length) { el.innerHTML = '<p style="color:var(--text-muted)">Δεν υπάρχουν δεδομένα ακόμα.</p>'; return; }
+
+      el.innerHTML = `
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Μάγειρας</th><th>Email</th><th>Μερίδες</th><th>Μ.Ο. ⭐</th><th>Πόντοι</th></tr>
+            </thead>
+            <tbody>
+              ${rows.map((r,i) => `
+                <tr>
+                  <td>${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+                  <td><strong>${r.name}</strong></td>
+                  <td style="color:var(--text-muted)">${r.email}</td>
+                  <td>${r.portions_given || 0}</td>
+                  <td>${r.avg_rating ? starsHtml(Math.round(r.avg_rating)) + ` (${r.avg_rating})` : '—'}</td>
+                  <td><span class="badge badge-info">${r.credits}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+</script>
+</body>
+</html>

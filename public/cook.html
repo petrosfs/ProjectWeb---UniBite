@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UniBite — Dashboard Μάγειρα</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/cook.html" class="navbar-brand" style="text-decoration:none">🍽️ Uni<span>Bite</span></a>
+  <div class="navbar-spacer"></div>
+  <div class="navbar-info">
+    <div class="credits-badge">🌟 <span id="user-credits">—</span></div>
+    <span id="user-name" style="font-weight:500"></span>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Έξοδος</button>
+  </div>
+</nav>
+
+<div class="page-container">
+  <div class="page-header">
+    <h1>Το Dashboard μου</h1>
+    <button class="btn btn-primary" onclick="openNewListingModal()">+ Νέα Αγγελία</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('listings')">📋 Οι Αγγελίες μου</button>
+    <button class="tab-btn"        onclick="switchTab('requests')">📨 Αιτήματα <span id="pending-badge"></span></button>
+  </div>
+
+  <!-- Tab: Αγγελίες -->
+  <div id="tab-listings" class="tab-panel active">
+    <div id="my-listings"><div class="spinner"></div></div>
+  </div>
+
+  <!-- Tab: Αιτήματα -->
+  <div id="tab-requests" class="tab-panel">
+    <div id="my-requests"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<!-- Modal: Νέα / Edit Αγγελία -->
+<div id="listing-modal" class="modal-backdrop" style="display:none" onclick="closeModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modal-title">Νέα Αγγελία</h2>
+      <button class="modal-close" onclick="closeListingModal()">✕</button>
+    </div>
+
+    <form id="listing-form" enctype="multipart/form-data">
+      <input type="hidden" id="edit-id">
+      <div class="form-group">
+        <label>Τίτλος φαγητού *</label>
+        <input class="form-control" id="f-title" placeholder="π.χ. Μουσακάς" required>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+        <div class="form-group">
+          <label>Αριθμός μερίδων *</label>
+          <input class="form-control" id="f-portions" type="number" min="1" max="20" placeholder="3" required>
+        </div>
+        <div class="form-group">
+          <label>Ώρα παραλαβής *</label>
+          <input class="form-control" id="f-pickup" placeholder="π.χ. 13:00-14:00" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Σημείο παραλαβής *</label>
+        <input class="form-control" id="f-location" placeholder="π.χ. Εστία Α, Δωμάτιο 214" required>
+      </div>
+      <div class="form-group">
+        <label>Τοποθεσία στον χάρτη (προαιρετικό — κλικ για ορισμό)</label>
+        <div id="picker-map" style="height:200px;border-radius:8px;border:1px solid var(--border)"></div>
+        <input type="hidden" id="f-lat"> <input type="hidden" id="f-lng">
+        <small id="latlng-display" style="color:var(--text-muted)">Δεν επιλέχθηκε τοποθεσία</small>
+      </div>
+      <div class="form-group">
+        <label>Σημειώσεις</label>
+        <textarea class="form-control" id="f-notes" placeholder="Περιγραφή, συστατικά, οδηγίες..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Φωτογραφία (προαιρετικό)</label>
+        <input class="form-control" id="f-photo" type="file" accept="image/*">
+      </div>
+      <div class="form-group">
+        <label>Αλλεργιογόνα (επισήμανε ό,τι ισχύει)</label>
+        <div id="allergen-list" class="allergen-grid"></div>
+      </div>
+      <div style="display:flex;gap:.75rem;margin-top:.5rem">
+        <button type="button" class="btn btn-outline" style="flex:1" onclick="closeListingModal()">Ακύρωση</button>
+        <button type="button" class="btn btn-primary" style="flex:2" onclick="saveListing()">💾 Αποθήκευση</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/app.js"></script>
+<script>
+  let allergens = [];
+  let pickerMap, pickerMarker;
+
+  // ─── Init ───────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', async () => {
+    const user = await checkAuth('cook');
+    if (!user) return;
+    allergens = await API.get('/api/allergens');
+    renderAllergens(allergens);
+    await loadAll();
+  });
+
+  async function loadAll() {
+    await Promise.all([loadListings(), loadRequests()]);
+  }
+
+  // ─── Tabs ────────────────────────────────────────────────
+  function switchTab(tab) {
+    ['listings','requests'].forEach(t => {
+      document.getElementById(`tab-${t}`).classList.toggle('active', t===tab);
+      document.querySelectorAll('.tab-btn')[t==='listings'?0:1].classList.toggle('active', t===tab);
+    });
+  }
+
+  // ─── Αγγελίες ────────────────────────────────────────────
+  async function loadListings() {
+    try {
+      const listings = await API.get('/api/my/listings');
+      const el = document.getElementById('my-listings');
+      if (!listings.length) {
+        el.innerHTML = '<div class="empty-state"><div class="emoji">🍳</div><p>Δεν έχεις δημιουργήσει αγγελίες ακόμα.</p></div>';
+        return;
+      }
+      el.innerHTML = `<div class="grid-cards">${listings.map(cookListingCard).join('')}</div>`;
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  function cookListingCard(l) {
+    const expired = new Date(l.expires_at) <= new Date();
+    const status  = expired ? 'expired' : (l.portions_available > 0 ? 'active' : 'inactive');
+    const labels  = { active:'Ενεργή', inactive:'Ανενεργή', expired:'Έληξε' };
+    const classes = { active:'badge-success', inactive:'badge-warning', expired:'badge-danger' };
+    return `
+      <div class="listing-card ${status !== 'active' ? 'inactive' : ''}">
+        ${l.photo_url ? `<img class="listing-card-img" src="${l.photo_url}">` : '<div class="listing-card-img-placeholder">🍲</div>'}
+        <div class="listing-card-body">
+          <div style="display:flex;gap:.5rem;align-items:center;justify-content:space-between">
+            <div class="listing-card-title">${l.title}</div>
+            <span class="badge ${classes[status]}">${labels[status]}</span>
+          </div>
+          <div class="listing-card-meta">
+            <span>🏠 ${l.location}</span>
+            <span>⏰ ${l.pickup_time}</span>
+            <span>🍽️ ${l.portions_available}/${l.portions_total} μερίδες</span>
+            <span>🕐 Λήξη: ${fmtDate(l.expires_at)}</span>
+          </div>
+          ${l.allergen_names ? `<div>${l.allergen_names.split(', ').map(a=>`<span class="allergen-tag">⚠ ${a}</span>`).join('')}</div>` : ''}
+        </div>
+        <div class="listing-card-footer" style="gap:.5rem;flex-wrap:wrap">
+          ${!expired ? `<button class="btn btn-outline btn-sm" onclick="editListing(${l.id})">✏️ Επεξεργασία</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="deleteListing(${l.id})">🗑️ Διαγραφή</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function deleteListing(id) {
+    if (!confirm('Να διαγραφεί η αγγελία;')) return;
+    try {
+      await API.delete(`/api/listings/${id}`);
+      toast('Η αγγελία διαγράφηκε', 'success');
+      loadListings();
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  // ─── Αιτήματα ────────────────────────────────────────────
+  async function loadRequests() {
+    try {
+      const reqs = await API.get('/api/cook/requests');
+      const pending = reqs.filter(r => r.status === 'pending').length;
+      const badge = document.getElementById('pending-badge');
+      badge.textContent = pending ? `(${pending})` : '';
+      badge.style.color = 'var(--danger)';
+
+      const el = document.getElementById('my-requests');
+      if (!reqs.length) {
+        el.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><p>Δεν υπάρχουν αιτήματα</p></div>';
+        return;
+      }
+
+      el.innerHTML = `
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Φαγητό</th><th>Καταναλωτής</th><th>Ημερομηνία</th><th>Κατάσταση</th><th>Βαθμολογία</th><th>Ενέργειες</th></tr>
+            </thead>
+            <tbody>
+              ${reqs.map(requestRow).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  function requestRow(r) {
+    const statusMap = {
+      pending:   ['Εκκρεμεί', 'badge-info'],
+      approved:  ['Εγκρίθηκε', 'badge-success'],
+      rejected:  ['Απορρίφθηκε', 'badge-danger'],
+      picked_up: ['Παρελήφθη', 'badge-success'],
+      no_show:   ['No-show', 'badge-danger'],
+    };
+    const [label, cls] = statusMap[r.status] || ['—',''];
+    const stars = r.rating ? starsHtml(r.rating) : '—';
+    let actions = '';
+    if (r.status === 'pending') {
+      actions = `
+        <button class="btn btn-success btn-sm" onclick="approveReq(${r.id})">✓ Αποδοχή</button>
+        <button class="btn btn-danger btn-sm"  onclick="rejectReq(${r.id})">✕ Απόρριψη</button>
+      `;
+    } else if (r.status === 'approved') {
+      actions = `
+        <button class="btn btn-primary btn-sm"  onclick="pickupReq(${r.id})">📦 Παραδόθηκε</button>
+        <button class="btn btn-warning btn-sm"  onclick="noshowReq(${r.id})">⚠ No-show</button>
+      `;
+    }
+    return `
+      <tr>
+        <td>${r.title}</td>
+        <td>${r.consumer_name}<br><small style="color:var(--text-muted)">${r.consumer_email}</small></td>
+        <td style="white-space:nowrap">${fmtDate(r.created_at)}</td>
+        <td><span class="badge ${cls}">${label}</span></td>
+        <td>${stars}</td>
+        <td style="display:flex;gap:.35rem;flex-wrap:wrap">${actions}</td>
+      </tr>
+    `;
+  }
+
+  async function approveReq(id) {
+    try { await API.put(`/api/requests/${id}/approve`); toast('Αποδεκτό!','success'); loadAll(); } catch(e){toast(e.message,'danger');}
+  }
+  async function rejectReq(id) {
+    try { await API.put(`/api/requests/${id}/reject`); toast('Απορρίφθηκε (πόντος επεστράφη)','success'); loadAll(); } catch(e){toast(e.message,'danger');}
+  }
+  async function pickupReq(id) {
+    try { await API.put(`/api/requests/${id}/pickup`); toast('Παραδόθηκε! +1 πόντος 🌟','success'); loadAll(); checkAuth('cook'); } catch(e){toast(e.message,'danger');}
+  }
+  async function noshowReq(id) {
+    if (!confirm('Να σημειωθεί ως No-show; Ο καταναλωτής θα χάσει 1 πόντο.')) return;
+    try { await API.put(`/api/requests/${id}/noshow`); toast('No-show καταγράφτηκε','success'); loadAll(); } catch(e){toast(e.message,'danger');}
+  }
+
+  // ─── Modal αγγελίας ──────────────────────────────────────
+  function renderAllergens(list) {
+    document.getElementById('allergen-list').innerHTML = list.map(a => `
+      <label class="allergen-item">
+        <input type="checkbox" class="allergen-cb" value="${a.id}"> ${a.name}
+      </label>
+    `).join('');
+  }
+
+  function openNewListingModal() {
+    document.getElementById('modal-title').textContent = 'Νέα Αγγελία';
+    document.getElementById('edit-id').value = '';
+    document.getElementById('listing-form').reset();
+    document.querySelectorAll('.allergen-cb').forEach(cb => cb.checked = false);
+    document.getElementById('latlng-display').textContent = 'Δεν επιλέχθηκε τοποθεσία';
+    document.getElementById('listing-modal').style.display = 'flex';
+    setTimeout(initPickerMap, 200);
+  }
+
+  async function editListing(id) {
+    try {
+      const l = await API.get(`/api/listings/${id}`);
+      document.getElementById('modal-title').textContent = 'Επεξεργασία Αγγελίας';
+      document.getElementById('edit-id').value    = l.id;
+      document.getElementById('f-title').value    = l.title;
+      document.getElementById('f-portions').value = l.portions_total;
+      document.getElementById('f-pickup').value   = l.pickup_time;
+      document.getElementById('f-location').value = l.location;
+      document.getElementById('f-notes').value    = l.notes || '';
+      document.getElementById('f-lat').value      = l.lat || '';
+      document.getElementById('f-lng').value      = l.lng || '';
+      if (l.lat) document.getElementById('latlng-display').textContent = `📍 ${(+l.lat).toFixed(4)}, ${(+l.lng).toFixed(4)}`;
+
+      // Αλλεργιογόνα
+      const ids = l.allergen_ids ? l.allergen_ids.split(',') : [];
+      document.querySelectorAll('.allergen-cb').forEach(cb => cb.checked = ids.includes(cb.value));
+
+      document.getElementById('listing-modal').style.display = 'flex';
+      setTimeout(() => {
+        initPickerMap();
+        if (l.lat && l.lng) setPickerMarker(+l.lat, +l.lng);
+      }, 200);
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  function initPickerMap() {
+    if (pickerMap) { pickerMap.remove(); pickerMap = null; pickerMarker = null; }
+    pickerMap = L.map('picker-map').setView([40.6401, 22.9444], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(pickerMap);
+    pickerMap.on('click', e => setPickerMarker(e.latlng.lat, e.latlng.lng));
+  }
+
+  function setPickerMarker(lat, lng) {
+    if (pickerMarker) pickerMarker.remove();
+    pickerMarker = L.marker([lat, lng]).addTo(pickerMap);
+    document.getElementById('f-lat').value = lat;
+    document.getElementById('f-lng').value = lng;
+    document.getElementById('latlng-display').textContent = `📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  }
+
+  async function saveListing() {
+    const title   = document.getElementById('f-title').value.trim();
+    const portions= document.getElementById('f-portions').value;
+    const pickup  = document.getElementById('f-pickup').value.trim();
+    const location= document.getElementById('f-location').value.trim();
+    if (!title || !portions || !pickup || !location) return toast('Συμπλήρωσε τα υποχρεωτικά πεδία (*)', 'warning');
+
+    const editId = document.getElementById('edit-id').value;
+    const fd     = new FormData();
+    fd.append('title',       title);
+    fd.append('portions',    portions);
+    fd.append('pickup_time', pickup);
+    fd.append('location',    location);
+    fd.append('notes',       document.getElementById('f-notes').value);
+    const lat = document.getElementById('f-lat').value;
+    const lng = document.getElementById('f-lng').value;
+    if (lat) { fd.append('lat', lat); fd.append('lng', lng); }
+    const photo = document.getElementById('f-photo').files[0];
+    if (photo) fd.append('photo', photo);
+    document.querySelectorAll('.allergen-cb:checked').forEach(cb => fd.append('allergen_ids', cb.value));
+
+    try {
+      if (editId) {
+        await API.call('PUT', `/api/listings/${editId}`, fd, true);
+        toast('Η αγγελία ενημερώθηκε!', 'success');
+      } else {
+        await API.call('POST', '/api/listings', fd, true);
+        toast('Η αγγελία δημιουργήθηκε! ⏳ Λήγει σε 48ω', 'success');
+      }
+      closeListingModal();
+      loadListings();
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  function closeListingModal() {
+    document.getElementById('listing-modal').style.display = 'none';
+    if (pickerMap) { pickerMap.remove(); pickerMap = null; }
+  }
+
+  function closeModal(e) { if (e.target.classList.contains('modal-backdrop')) closeListingModal(); }
+</script>
+</body>
+</html>

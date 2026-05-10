@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UniBite — Τα Αιτήματά μου</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/feed.html" class="navbar-brand" style="text-decoration:none">🍽️ Uni<span>Bite</span></a>
+  <div class="navbar-spacer"></div>
+  <div class="navbar-info">
+    <div class="credits-badge">🌟 <span id="user-credits">—</span></div>
+    <span id="user-name" style="font-weight:500"></span>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Έξοδος</button>
+  </div>
+</nav>
+
+<div class="page-container">
+  <div class="page-header">
+    <div style="display:flex;align-items:center;gap:.75rem">
+      <a href="/feed.html" style="display:flex;align-items:center;gap:.3rem;color:var(--text-muted);font-size:.9rem;text-decoration:none" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='var(--text-muted)'">
+        ← Αρχική
+      </a>
+      <span style="color:var(--border)">/</span>
+      <h1 style="margin:0">Τα Αιτήματά μου</h1>
+    </div>
+    <button class="btn btn-outline btn-sm" onclick="loadRequests()">🔄 Ανανέωση</button>
+  </div>
+
+  <!-- Φίλτρο κατάστασης -->
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem">
+    <button class="btn btn-primary btn-sm filter-btn active" onclick="setFilter('all', this)">Όλα</button>
+    <button class="btn btn-outline btn-sm filter-btn" onclick="setFilter('pending', this)">⏳ Εκκρεμούν</button>
+    <button class="btn btn-outline btn-sm filter-btn" onclick="setFilter('approved', this)">✅ Εγκρίθηκαν</button>
+    <button class="btn btn-outline btn-sm filter-btn" onclick="setFilter('picked_up', this)">📦 Παρελήφθησαν</button>
+    <button class="btn btn-outline btn-sm filter-btn" onclick="setFilter('rejected', this)">✕ Απορρίφθηκαν</button>
+  </div>
+
+  <div id="requests-container"><div class="spinner"></div></div>
+</div>
+
+<!-- Modal αξιολόγησης -->
+<div id="rating-modal" class="modal-backdrop" style="display:none" onclick="closeModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Αξιολόγηση γεύματος</h2>
+      <button class="modal-close" onclick="document.getElementById('rating-modal').style.display='none'">✕</button>
+    </div>
+    <p id="rating-food-title" style="font-weight:600;margin-bottom:.5rem"></p>
+    <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1rem">Πώς ήταν το φαγητό; Αξιολόγησε εντός 48ω αλλιώς χάνεις 1 πόντο.</p>
+    <div id="star-picker" style="font-size:2.2rem;display:flex;gap:.4rem;margin-bottom:1.25rem;cursor:pointer"></div>
+    <button class="btn btn-primary btn-full" onclick="submitRating()">Υποβολή αξιολόγησης</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/js/app.js"></script>
+<script>
+  let allRequests = [];
+  let currentFilter = 'all';
+  let ratingRequestId = null;
+
+  window.addEventListener('DOMContentLoaded', async () => {
+    const user = await checkAuth('consumer');
+    if (!user) return;
+    await loadRequests();
+  });
+
+  async function loadRequests() {
+    try {
+      allRequests = await API.get('/api/my/requests');
+      renderRequests();
+    } catch (e) {
+      document.getElementById('requests-container').innerHTML =
+        `<p style="color:var(--danger)">${e.message}</p>`;
+    }
+  }
+
+  function setFilter(filter, btn) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(b => {
+      b.classList.remove('btn-primary');
+      b.classList.add('btn-outline');
+    });
+    btn.classList.add('btn-primary');
+    btn.classList.remove('btn-outline');
+    renderRequests();
+  }
+
+  function renderRequests() {
+    const list = currentFilter === 'all'
+      ? allRequests
+      : allRequests.filter(r => r.status === currentFilter);
+
+    const el = document.getElementById('requests-container');
+    if (!list.length) {
+      el.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><p>Δεν υπάρχουν αιτήματα σε αυτή την κατηγορία.</p></div>';
+      return;
+    }
+
+    el.innerHTML = `<div class="grid-cards">${list.map(requestCard).join('')}</div>`;
+  }
+
+  function requestCard(r) {
+    const statusMap = {
+      pending:   { label: '⏳ Εκκρεμεί',      cls: 'badge-info',    desc: 'Αναμένεις απάντηση από τον μάγειρα.' },
+      approved:  { label: '✅ Εγκρίθηκε',      cls: 'badge-success', desc: 'Πήγαινε να παραλάβεις το φαγητό!' },
+      rejected:  { label: '✕ Απορρίφθηκε',    cls: 'badge-danger',  desc: 'Ο μάγειρας δεν μπόρεσε να σε εξυπηρετήσει. Ο πόντος σου επεστράφη.' },
+      picked_up: { label: '📦 Παρελήφθη',      cls: 'badge-success', desc: 'Απολαύστε!' },
+      no_show:   { label: '⚠ No-show',         cls: 'badge-danger',  desc: 'Δεν παρέλαβες τη μερίδα. Αφαιρέθηκε 1 πόντος.' },
+    };
+    const s      = statusMap[r.status] || { label: r.status, cls: '', desc: '' };
+    const imgHtml = r.photo_url
+      ? `<img class="listing-card-img" src="${r.photo_url}" alt="${r.title}" loading="lazy">`
+      : `<div class="listing-card-img-placeholder">🍲</div>`;
+
+    const needsRating  = r.status === 'picked_up' && !r.my_rating;
+    const hasRating    = r.status === 'picked_up' && r.my_rating;
+    const pickedUpTime = r.picked_up_at ? new Date(r.picked_up_at) : null;
+    const deadline     = pickedUpTime ? new Date(pickedUpTime.getTime() + 48*60*60*1000) : null;
+    const now          = new Date();
+    const hoursLeft    = deadline ? Math.max(0, ((deadline - now) / 3600000)).toFixed(0) : null;
+
+    let ratingSection = '';
+    if (needsRating) {
+      ratingSection = `
+        <div style="background:var(--warning-light);border-radius:8px;padding:.75rem;margin-top:.5rem">
+          <p style="font-size:.85rem;color:var(--warning);font-weight:600;margin-bottom:.5rem">
+            ⚠ Αξιολόγησε εντός ${hoursLeft}ω αλλιώς χάνεις 1 πόντο!
+          </p>
+          <button class="btn btn-warning btn-sm btn-full" onclick="openRatingModal(${r.id}, '${r.title.replace(/'/g,"\\'")}')">
+            ⭐ Αξιολόγηση
+          </button>
+        </div>
+      `;
+    } else if (hasRating) {
+      ratingSection = `
+        <div style="background:var(--success-light);border-radius:8px;padding:.75rem;margin-top:.5rem;font-size:.875rem">
+          Η αξιολόγησή σου: ${starsHtml(r.my_rating)}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="listing-card">
+        ${imgHtml}
+        <div class="listing-card-body">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem">
+            <div class="listing-card-title">${r.title}</div>
+            <span class="badge ${s.cls}" style="white-space:nowrap">${s.label}</span>
+          </div>
+          <div class="listing-card-meta">
+            <span>👨‍🍳 ${r.cook_name}</span>
+            <span>🏠 ${r.location}</span>
+            <span>⏰ ${r.pickup_time}</span>
+            <span>📅 Αίτημα: ${fmtDate(r.created_at)}</span>
+            ${r.picked_up_at ? `<span>📦 Παραλαβή: ${fmtDate(r.picked_up_at)}</span>` : ''}
+          </div>
+          <p style="font-size:.85rem;color:var(--text-muted);margin-top:.25rem">${s.desc}</p>
+          ${ratingSection}
+        </div>
+      </div>
+    `;
+  }
+
+  function openRatingModal(requestId, title) {
+    ratingRequestId = requestId;
+    document.getElementById('rating-food-title').textContent = title;
+    interactiveStars('star-picker');
+    document.getElementById('rating-modal').style.display = 'flex';
+  }
+
+  async function submitRating() {
+    const stars = +document.getElementById('star-picker').dataset.value;
+    if (!stars) return toast('Επέλεξε βαθμολογία', 'warning');
+    try {
+      await API.post(`/api/requests/${ratingRequestId}/rating`, { stars });
+      toast('Ευχαριστούμε για την αξιολόγηση! 🌟', 'success');
+      document.getElementById('rating-modal').style.display = 'none';
+      await loadRequests();
+      await checkAuth('consumer'); // ανανέωση credits
+    } catch (e) { toast(e.message, 'danger'); }
+  }
+
+  function closeModal(e) {
+    if (e.target.classList.contains('modal-backdrop'))
+      e.target.style.display = 'none';
+  }
+</script>
+</body>
+</html>
