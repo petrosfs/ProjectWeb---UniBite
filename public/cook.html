@@ -333,7 +333,12 @@
     if (lat) { fd.append('lat', lat); fd.append('lng', lng); }
     const photo = document.getElementById('f-photo').files[0];
     if (photo) fd.append('photo', photo);
-    document.querySelectorAll('.allergen-cb:checked').forEach(cb => fd.append('allergen_ids', cb.value));
+    const checkedAllergens = document.querySelectorAll('.allergen-cb:checked');
+    if (checkedAllergens.length > 0) {
+      checkedAllergens.forEach(cb => fd.append('allergen_ids', cb.value));
+    } else {
+      fd.append('allergen_ids', '');
+    }
 
     try {
       if (editId) {
