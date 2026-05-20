@@ -1,4 +1,9 @@
-# 🍽️ UniBite — Φοιτητικό Food Sharing Platform
+# UniBite — Φοιτητικό Food Sharing Platform
+
+**Online:** https://projectweb-unibite-production.up.railway.app
+**GitHub:** https://github.com/petrosfs/ProjectWeb---UniBite
+
+---
 
 ## Γρήγορη εκκίνηση
 
@@ -11,7 +16,7 @@ npm install
 ### 2. Ρύθμιση περιβάλλοντος
 ```bash
 cp .env.example .env
-# Επεξεργάσου το .env με τα στοιχεία σου (DB_USER, DB_PASS κ.λπ.)
+# Επεξεργάσου το .env με τα στοιχεία σου (DB_HOST, DB_USER, DB_PASS, DB_NAME)
 ```
 
 ### 3. Δημιουργία βάσης δεδομένων
@@ -39,21 +44,23 @@ npm start      # production
 
 ```
 unibite/
-├── server.js          # Express backend + όλα τα API endpoints
-├── db.js              # MySQL connection pool
-├── schema.sql         # Δομή βάσης + αλλεργιογόνα
-├── seed.js            # Δημιουργία admin
-├── .env               # Μεταβλητές περιβάλλοντος (δεν ανεβαίνει στο git)
+├── server.js            # Express backend + όλα τα API endpoints
+├── db.js                # MySQL connection pool
+├── schema.sql           # Δομή βάσης + αλλεργιογόνα (14 της ΕΕ)
+├── seed.js              # Δημιουργία admin χρήστη
+├── unibite_export.sql   # Export βάσης δεδομένων (δεδομένα + δομή)
+├── .env.example         # Υπόδειγμα μεταβλητών περιβάλλοντος
 └── public/
-    ├── index.html     # Login / Register
-    ├── feed.html      # Feed καταναλωτή (λίστα + χάρτης)
-    ├── cook.html      # Dashboard μάγειρα
-    ├── admin.html     # Dashboard admin
+    ├── index.html       # Login / Register
+    ├── feed.html        # Feed καταναλωτή (λίστα + χάρτης Leaflet)
+    ├── cook.html        # Dashboard μάγειρα (αγγελίες + αιτήματα)
+    ├── requests.html    # Αιτήματα καταναλωτή + αξιολογήσεις
+    ├── admin.html       # Dashboard admin (στατιστικά + leaderboard)
     ├── css/
-    │   └── style.css  # Responsive styles
+    │   └── style.css    # Responsive styles (mobile-first, CSS variables)
     ├── js/
-    │   └── app.js     # Κοινές συναρτήσεις (API, toast, auth)
-    └── uploads/       # Φωτογραφίες αγγελιών (δημιουργείται αυτόματα)
+    │   └── app.js       # Κοινές συναρτήσεις (API wrapper, toast, auth)
+    └── uploads/         # Φωτογραφίες αγγελιών (δημιουργείται αυτόματα)
 ```
 
 ---
@@ -74,7 +81,7 @@ unibite/
 | PUT | /api/listings/:id | Cook | Επεξεργασία |
 | DELETE | /api/listings/:id | Cook | Διαγραφή |
 | POST | /api/listings/:id/requests | Consumer | Αίτημα μερίδας |
-| GET | /api/my/requests | Consumer | Αιτήματα μου |
+| GET | /api/my/requests | Consumer | Αιτήματά μου |
 | GET | /api/cook/requests | Cook | Εισερχόμενα αιτήματα |
 | PUT | /api/requests/:id/approve | Cook | Αποδοχή |
 | PUT | /api/requests/:id/reject | Cook | Απόρριψη (+refund) |
@@ -96,12 +103,14 @@ unibite/
 | Επιτυχής παραλαβή | Μάγειρας: +1 |
 | Βαθμολογία > 3/5 | Μάγειρας: +1 bonus |
 | No-show | Καταναλωτής: -1 |
-| Χωρίς αξιολόγηση >48ω | Καταναλωτής: -1 |
+| Χωρίς αξιολόγηση εντός 48ω | Καταναλωτής: -1 (background job) |
 
 ---
 
 ## Κατάσταση αγγελιών
 
-- **Ενεργή**: `expires_at > NOW()` ΚΑΙ `portions_available > 0` → εμφανίζεται κανονικά
-- **Ανενεργή**: `expires_at > NOW()` ΚΑΙ `portions_available = 0` → εμφανίζεται greyed out
-- **Διεγραμμένη**: `expires_at <= NOW()` → δεν εμφανίζεται, παραμένει για στατιστικά
+| Κατάσταση | Συνθήκη | Εμφάνιση |
+|-----------|---------|----------|
+| Ενεργή | `expires_at > NOW()` ΚΑΙ `portions_available > 0` | Κανονικά |
+| Ανενεργή | `expires_at > NOW()` ΚΑΙ `portions_available = 0` | Greyed out |
+| Διεγραμμένη | `expires_at <= NOW()` | Δεν εμφανίζεται — παραμένει για στατιστικά |
