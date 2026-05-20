@@ -469,7 +469,7 @@ app.get('/api/admin/stats', requireAuth, requireRole('admin'), async (req, res) 
   try {
     const [[{ total_month }]] = await db.query(`
       SELECT COUNT(*) AS total_month FROM requests
-      WHERE status='picked_up' AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
+      WHERE status='picked_up' AND picked_up_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
     `);
 
     const [topDonor] = await db.query(`
