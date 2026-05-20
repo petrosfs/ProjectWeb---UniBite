@@ -57,9 +57,10 @@
         <input class="form-control" id="f-title" placeholder="π.χ. Μουσακάς" required>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-        <div class="form-group">
-          <label>Αριθμός μερίδων *</label>
+        <div class="form-group" id="portions-group">
+          <label id="portions-label">Αριθμός μερίδων *</label>
           <input class="form-control" id="f-portions" type="number" min="1" max="20" placeholder="3" required>
+          <small id="portions-hint" style="display:none;color:var(--text-muted)">Δεν μπορεί να αλλαχθεί μετά τη δημιουργία</small>
         </div>
         <div class="form-group">
           <label>Ώρα παραλαβής *</label>
@@ -269,6 +270,10 @@
     document.getElementById('listing-form').reset();
     document.querySelectorAll('.allergen-cb').forEach(cb => cb.checked = false);
     document.getElementById('latlng-display').textContent = 'Δεν επιλέχθηκε τοποθεσία';
+    const portionsInput = document.getElementById('f-portions');
+    portionsInput.disabled = false;
+    portionsInput.required = true;
+    document.getElementById('portions-hint').style.display = 'none';
     document.getElementById('listing-modal').style.display = 'flex';
     setTimeout(initPickerMap, 200);
   }
@@ -279,7 +284,11 @@
       document.getElementById('modal-title').textContent = 'Επεξεργασία Αγγελίας';
       document.getElementById('edit-id').value    = l.id;
       document.getElementById('f-title').value    = l.title;
-      document.getElementById('f-portions').value = l.portions_total;
+      const portionsInput = document.getElementById('f-portions');
+      portionsInput.value    = l.portions_total;
+      portionsInput.disabled = true;
+      portionsInput.required = false;
+      document.getElementById('portions-hint').style.display = 'block';
       document.getElementById('f-pickup').value   = l.pickup_time;
       document.getElementById('f-location').value = l.location;
       document.getElementById('f-notes').value    = l.notes || '';
