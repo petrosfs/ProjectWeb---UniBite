@@ -6,6 +6,46 @@
 
 ---
 
+## Screenshots
+
+### Σύνδεση
+![Login](Screenshots/login.png)
+
+### Feed Καταναλωτή
+![Feed](Screenshots/dashboard_katanalwtis.png)
+
+### Χάρτης Παραλαβής
+![Map](Screenshots/unibite_feed_map.png)
+
+### Αγγελία
+![Αγγελία](Screenshots/aggelia.png)
+
+### Νέα Αγγελία (Μάγειρας)
+![Νέα Αγγελία](Screenshots/Nea_aggelia.png)
+
+### Dashboard Μάγειρα
+![Dashboard Μάγειρα](Screenshots/dashboard_mageiras.png)
+
+### Αιτήματα Μάγειρα
+![Αιτήματα Μάγειρα](Screenshots/myrequests_mageiras.png)
+
+### Αιτήματα Καταναλωτή
+![Αιτήματα Καταναλωτή](Screenshots/myrequests_katanalwtis.png)
+
+### Αξιολόγηση
+![Αξιολόγηση](Screenshots/rating_hovercursor.png)
+
+### Ειδοποίηση Πόντων
+![Πόντοι](Screenshots/point_notification.png)
+
+### Admin Dashboard
+![Admin](Screenshots/unibite_admin_dashboard.png)
+
+### Mobile
+![Mobile Admin](Screenshots/mobile_admin.png)
+
+---
+
 ## Γρήγορη εκκίνηση - Localhost
 
 ### 1. Εγκατάσταση dependencies
